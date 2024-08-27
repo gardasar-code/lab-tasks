@@ -1,0 +1,114 @@
+services:
+
+  minio:
+    image: minio/minio:latest
+    container_name: lab-tasks-minio
+    hostname: minio
+    command: server --console-address ":9001" /data/
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio-data:/data
+      
+  create-bucket:
+    image: minio/mc:latest
+    container_name: lab-tasks-create-bucket
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until (/usr/bin/mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD})
+      do
+          sleep 3
+      done &&
+      /usr/bin/mc mb myminio/${MINIO_BUCKET_NAME} &&
+      /usr/bin/mc admin user add myminio ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} &&
+      /usr/bin/mc admin policy attach myminio readwrite --user ${MINIO_ACCESS_KEY}
+      "
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+
+  postgres:
+    image: postgres
+    container_name: lab-tasks-postgres
+    hostname: postgres
+    ports:
+      - 5432:5432
+    environment:
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      -  postgres-data:/var/lib/postgresql/data
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=50"
+      - "-c"
+      - "wal_level=logical"
+      - "-c"
+      - "max_replication_slots=5"
+      - "-c"
+      - "max_wal_senders=10"
+      - "-c"
+      - "max_locks_per_transaction=512"
+      - "-c"
+      - "shared_buffers=256"
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: lab-tasks-kafka-ui
+    ports:
+      - 30000:8080
+    depends_on:
+      - kafka
+    volumes:
+      - kafkaui-data:/etc/kafkaui
+    environment:
+      DYNAMIC_CONFIG_ENABLED: 'true'
+      KAFKA_CLUSTERS_0_NAME: dev-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+
+  kafka:
+    image: bitnami/kafka:latest
+    container_name: lab-tasks-kafka
+    hostname: kafka
+    ports:
+      - 9092:9092
+    volumes:
+      - kafka-data:/bitnami
+    environment:
+      - KAFKA_CFG_NODE_ID=0
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+
+  api-to-s3:
+    build:
+      context: ./lab-api-to-s3/src/Microservice
+      dockerfile: ./Dockerfile
+    container_name: lab-tasks-api-to-s3
+    hostname: lab-tasks-api-to-s3
+    ports:
+      - ${API_TO_S3_HTTP_PORT}:8080
+      - ${API_TO_S3_HTTPS_PORT}:8081
+    depends_on:
+      - minio
+      
+volumes:
+  minio-data:
+  postgres-data:
+  kafka-data:
+  kafkaui-data:
