@@ -1,0 +1,3 @@
+[submodule "lab-api-to-s3"]
+	path = lab-api-to-s3
+	url = ./lab-api-to-s3
